@@ -6,69 +6,62 @@ pipeline {
         TF_DIR = "terraform"
         ANSIBLE_DIR = "ansible"
         INVENTORY_FILE = "ansible/inventory/hosts"
+        SSH_KEY = "/var/lib/jenkins/.ssh/devops-key.pem"
+        EMAIL_TO = "r.sheshanthr@gmail.com"
+    }
+ 
+    options {
+        timestamps()
     }
  
     stages {
  
         stage('Checkout Code') {
             steps {
-                checkout scm
+                git branch: 'main',
+                    url: 'https://github.com/sheshanth-ramidi/devops-master-project.git'
             }
         }
  
         stage('Terraform Init') {
             steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-creds'
-                ]]) {
-                    dir("${TF_DIR}") {
-                        sh 'terraform init'
-                    }
+                dir("${TF_DIR}") {
+                    sh '''
+                      terraform init -reconfigure
+                    '''
                 }
             }
         }
  
         stage('Terraform Plan') {
             steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-creds'
-                ]]) {
-                    dir("${TF_DIR}") {
-                        sh 'terraform plan'
-                    }
+                dir("${TF_DIR}") {
+                    sh '''
+                      terraform plan
+                    '''
                 }
             }
         }
  
         stage('Terraform Apply') {
             steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-creds'
-                ]]) {
-                    dir("${TF_DIR}") {
-                        sh 'terraform apply -auto-approve'
-                    }
+                dir("${TF_DIR}") {
+                    sh '''
+                      terraform apply -auto-approve
+                    '''
                 }
             }
         }
  
         stage('Fetch EC2 Public IP') {
             steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-creds'
-                ]]) {
-                    dir("${TF_DIR}") {
-                        script {
-                            EC2_IP = sh(
-                                script: "terraform output -raw web_public_ip",
-                                returnStdout: true
-                            ).trim()
-                            echo "EC2 Public IP: ${EC2_IP}"
-                        }
+                dir("${TF_DIR}") {
+                    script {
+                        env.EC2_IP = sh(
+                            script: "terraform output -raw web_public_ip",
+                            returnStdout: true
+                        ).trim()
+                        echo "EC2 Public IP: ${EC2_IP}"
                     }
                 }
             }
@@ -77,51 +70,71 @@ pipeline {
         stage('Generate Ansible Inventory') {
             steps {
                 script {
-                    sh """
-                    mkdir -p ansible/inventory
-                    cat <<EOF > ${INVENTORY_FILE}
+                    sh "mkdir -p ${ANSIBLE_DIR}/inventory"
+ 
+                    writeFile file: "${INVENTORY_FILE}", text: """
 [web]
-web1 ansible_host=${EC2_IP} ansible_user=ubuntu ansible_ssh_private_key_file=${WORKSPACE}/ansible/Ansible_key.pem
-EOF
-                    """
+web1 ansible_host=${EC2_IP}
+ 
+[web:vars]
+ansible_user=ubuntu
+ansible_ssh_private_key_file=${SSH_KEY}
+"""
                 }
+            }
+        }
+ 
+        stage('Prepare SSH') {
+            steps {
+                sh '''
+                  chmod 600 /var/lib/jenkins/.ssh/devops-key.pem
+                  ssh-keygen -R ${EC2_IP} || true
+                  ssh -o StrictHostKeyChecking=no -i /var/lib/jenkins/.ssh/devops-key.pem ubuntu@${EC2_IP} "echo SSH_OK"
+                '''
             }
         }
  
         stage('Test Ansible Connectivity') {
             steps {
-                sh """
-                chmod 600 ansible/Ansible_key.pem
-                ansible -i ${INVENTORY_FILE} web -m ping
-                """
+                sh '''
+                  ansible -i ansible/inventory/hosts web -m ping
+                '''
             }
         }
  
         stage('Run Ansible Playbook') {
             steps {
-                sh """
-                ansible-playbook -i ${INVENTORY_FILE} ansible/playbooks/web.yml
-                """
+                sh '''
+                  ansible-playbook -i ansible/inventory/hosts ansible/playbooks/web.yml
+                '''
             }
         }
     }
  
     post {
         success {
-            mail to: 'yourmail@gmail.com',
-                 subject: "SUCCESS: DevOps Master Project",
-                 body: """Pipeline SUCCESS ✅
+            mail to: "${EMAIL_TO}",
+                 subject: "✅ Jenkins Pipeline SUCCESS: DevOps Master Project",
+                 body: """
+Pipeline executed successfully.
  
-EC2 Public IP: ${EC2_IP}
+EC2 IP: ${EC2_IP}
  
-Terraform + Ansible executed successfully.
+Terraform Provisioning ✔
+Ansible Configuration ✔
+Application Deployed ✔
 """
         }
  
         failure {
-            mail to: 'yourmail@gmail.com',
-                 subject: "FAILED: DevOps Master Project",
-                 body: "Pipeline FAILED ❌. Check Jenkins logs."
+            mail to: "${EMAIL_TO}",
+                 subject: "❌ Jenkins Pipeline FAILED: DevOps Master Project",
+                 body: """
+Pipeline failed.
+ 
+Check Jenkins console output immediately.
+"""
         }
     }
 }
+ 
