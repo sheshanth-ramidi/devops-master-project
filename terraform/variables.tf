@@ -22,8 +22,6 @@ variable "key_name" {
   description = "EC2 key pair name"
   type        = string
 }
-<<<<<<< HEAD
-=======
 
 variable "ecr_repository_name" {
   description = "ECR repository name"
@@ -41,4 +39,4 @@ variable "ecr_scan_on_push" {
   type        = bool
   default     = true
 }
->>>>>>> d0dfe5b (Update with phase 6)
+
