@@ -6,7 +6,7 @@ resource "aws_instance" "devops_ec2" {
  
   key_name = var.key_name
   
-  iam_instance_profile = aws_iam_instance_profile.jenkins_profile.name
+  iam_instance_profile = aws_iam_instance_profile.ec2_profile.name
  
    metadata_options {
     http_endpoint               = "enabled"
