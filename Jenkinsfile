@@ -8,7 +8,7 @@ pipeline {
         INVENTORY   = "ansible/inventory/hosts"
         SSH_KEY     = "/var/lib/jenkins/.ssh/devops-key.pem"
  
-        AWS_ACCOUNT_ID = "YOUR_ACCOUNT_ID"
+        AWS_ACCOUNT_ID = "741960641924"
         ECR_REPO = "${AWS_ACCOUNT_ID}.dkr.ecr.ap-south-1.amazonaws.com/devops-master-app"
         IMAGE_TAG = "latest"
  
