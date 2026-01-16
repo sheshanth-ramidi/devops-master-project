@@ -22,6 +22,15 @@ pipeline {
     stages {
  
         /* ================= PHASE-3 ================= */
+
+        stage('Force Clean Workspace') {
+            steps {
+                sh '''
+                  rm -rf .git
+                  git clean -fdx
+                  '''
+            }
+         }
  
         stage('Checkout Code') {
             steps {
