@@ -3,14 +3,12 @@ pipeline {
  
     environment {
         AWS_DEFAULT_REGION = "ap-south-1"
- 
-        TF_DIR       = "terraform"
-        ANSIBLE_DIR  = "ansible"
-        INVENTORY    = "ansible/inventory/hosts"
- 
-        SSH_KEY      = "/var/lib/jenkins/.ssh/devops-key.pem"
- 
-        EMAIL_TO     = "r.sheshanthr@gmail.com"
+        TF_DIR = "terraform"
+        ANSIBLE_DIR = "ansible"
+        INVENTORY = "ansible/inventory/hosts"
+        SSH_KEY = "/var/lib/jenkins/.ssh/devops-key.pem"
+        EMAIL_TO = "r.sheshanth@gmail.com"
+        ANSIBLE_HOST_KEY_CHECKING = "False"
     }
  
     options {
@@ -33,9 +31,7 @@ pipeline {
                     credentialsId: 'aws-jenkins'
                 ]]) {
                     dir("${TF_DIR}") {
-                        sh '''
-                          terraform init -reconfigure
-                        '''
+                        sh 'terraform init -reconfigure'
                     }
                 }
             }
@@ -48,19 +44,8 @@ pipeline {
                     credentialsId: 'aws-jenkins'
                 ]]) {
                     dir("${TF_DIR}") {
-                        sh '''
-                          terraform plan
-                        '''
+                        sh 'terraform plan'
                     }
-                }
-            }
-        }
-
-       stage('Terraform Validate') {
-            steps {
-                dir('terraform') {
-                    sh 'terraform init -input=false'
-                    sh 'terraform validate'
                 }
             }
         }
@@ -72,9 +57,7 @@ pipeline {
                     credentialsId: 'aws-jenkins'
                 ]]) {
                     dir("${TF_DIR}") {
-                        sh '''
-                          terraform apply -auto-approve
-                        '''
+                        sh 'terraform apply -auto-approve'
                     }
                 }
             }
@@ -89,15 +72,14 @@ pipeline {
                             returnStdout: true
                         ).trim()
                     }
+                    echo "EC2 Public IP: ${EC2_IP}"
                 }
-                echo "EC2 Public IP: ${EC2_IP}"
             }
         }
  
         stage('Generate Ansible Inventory') {
             steps {
                 sh "mkdir -p ${ANSIBLE_DIR}/inventory"
- 
                 writeFile file: "${INVENTORY}", text: """
 [web]
 web1 ansible_host=${EC2_IP}
@@ -112,58 +94,46 @@ ansible_ssh_common_args='-o StrictHostKeyChecking=no'
  
         stage('Prepare SSH') {
             steps {
-                sh '''
-                  chmod 600 /var/lib/jenkins/.ssh/devops-key.pem || true
-                  ssh-keygen -R ${EC2_IP} || true
-                  ssh -o StrictHostKeyChecking=no -i /var/lib/jenkins/.ssh/devops-key.pem ubuntu@${EC2_IP} "echo SSH OK"
-                '''
+                sh """
+                chmod 600 ${SSH_KEY} || true
+                ssh-keygen -R ${EC2_IP} || true
+                ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ubuntu@${EC2_IP} "echo SSH OK"
+                """
             }
         }
  
         stage('Test Ansible Connectivity') {
             steps {
-                sh '''
-                  ansible -i ansible/inventory/hosts web -m ping
-                '''
+                sh "ansible -i ${INVENTORY} web -m ping"
             }
         }
  
         stage('Run Ansible Playbook') {
             steps {
+                sh "ansible-playbook -i ${INVENTORY} ansible/playbooks/web.yml"
+            }
+        }
+ 
+        /* =========================
+           ======= PHASE-4 =========
+           ========================= */
+ 
+        stage('Phase-4: Build Docker Image') {
+            steps {
                 sh '''
-                  ansible-playbook -i ansible/inventory/hosts ansible/playbooks/web.yml
+                docker build -t phase4-app:latest Docker/
                 '''
             }
         }
-       
-        stage('Docker Build') {
-            steps {
-                dir('docker') {
-                    sh """
-                    docker build -t devops-master:${BUILD_NUMBER} .
-                    """
-                }
-            }
-        }
  
-        stage('Push Image to ECR') {
+        stage('Phase-4: Deploy Docker Container to EC2') {
             steps {
                 sh """
-                aws ecr get-login-password --region ${AWS_REGION} \
-                | docker login --username AWS --password-stdin ${ECR_REPO}
- 
-                docker tag devops-master:${BUILD_NUMBER} ${ECR_REPO}:${BUILD_NUMBER}
-                docker push ${ECR_REPO}:${BUILD_NUMBER}
-                """
-            }
-        }
- 
-        stage('Blue-Green Deployment') {
-            steps {
-                sh """
-                ansible-playbook -i ansible/inventory/hosts \
-                ansible/playbooks/deploy.yml \
-                -e ecr_image=${ECR_REPO}:${BUILD_NUMBER}
+                ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ubuntu@${EC2_IP} '
+                    docker stop phase4 || true
+                    docker rm phase4 || true
+                    docker run -d --name phase4 -p 80:80 nginx
+                '
                 """
             }
         }
@@ -171,27 +141,27 @@ ansible_ssh_common_args='-o StrictHostKeyChecking=no'
  
     post {
         success {
-            mail to: "${EMAIL_TO}",
-                 subject: "✅ Jenkins Pipeline SUCCESS – DevOps Master Project",
-                 body: """
-Pipeline executed successfully.
+            emailext(
+                to: "${EMAIL_TO}",
+                subject: "✅ Jenkins Pipeline SUCCESS - DevOps Master Project",
+                body: """
+Pipeline completed successfully.
  
 EC2 IP: ${EC2_IP}
  
 ✔ Terraform Provisioning
 ✔ Ansible Configuration
-✔ Application Deployed
+✔ Docker Deployment (Phase-4)
 """
+            )
         }
  
         failure {
-            mail to: "${EMAIL_TO}",
-                 subject: "❌ Jenkins Pipeline FAILED – DevOps Master Project",
-                 body: """
-Pipeline failed.
- 
-Check Jenkins console output immediately.
-"""
+            emailext(
+                to: "${EMAIL_TO}",
+                subject: "❌ Jenkins Pipeline FAILED - DevOps Master Project",
+                body: "Pipeline failed. Check Jenkins console output."
+            )
         }
     }
 }
