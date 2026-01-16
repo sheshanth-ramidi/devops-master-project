@@ -28,6 +28,10 @@
         groups: docker
         append: yes
  
+    - name: Reboot EC2 to apply docker group permissions
+      reboot:
+        reboot_timeout: 300
+ 
     - name: Download AWS CLI v2
       get_url:
         url: https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
@@ -40,9 +44,15 @@
         remote_src: yes
  
     - name: Install AWS CLI
-      command: /tmp/aws/install
+      shell: /tmp/aws/install
       args:
         creates: /usr/local/bin/aws
+ 
+    - name: Ensure AWS CLI path is available
+      lineinfile:
+        path: /etc/profile.d/aws.sh
+        line: 'export PATH=$PATH:/usr/local/bin'
+        create: yes
  
     - name: Verify AWS CLI
       command: aws --version
@@ -50,3 +60,10 @@
  
     - debug:
         msg: "{{ aws_version.stdout }}"
+ 
+    - name: Verify IAM Role access (STS)
+      command: aws sts get-caller-identity
+      register: sts_output
+ 
+    - debug:
+        msg: "{{ sts_output.stdout }}"
