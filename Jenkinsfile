@@ -55,6 +55,15 @@ pipeline {
                 }
             }
         }
+
+       stage('Terraform Validate') {
+            steps {
+                dir('terraform') {
+                    sh 'terraform init -input=false'
+                    sh 'terraform validate'
+                }
+            }
+        }
  
         stage('Terraform Apply') {
             steps {
@@ -124,6 +133,38 @@ ansible_ssh_common_args='-o StrictHostKeyChecking=no'
                 sh '''
                   ansible-playbook -i ansible/inventory/hosts ansible/playbooks/web.yml
                 '''
+            }
+        }
+       
+        stage('Docker Build') {
+            steps {
+                dir('docker') {
+                    sh """
+                    docker build -t devops-master:${BUILD_NUMBER} .
+                    """
+                }
+            }
+        }
+ 
+        stage('Push Image to ECR') {
+            steps {
+                sh """
+                aws ecr get-login-password --region ${AWS_REGION} \
+                | docker login --username AWS --password-stdin ${ECR_REPO}
+ 
+                docker tag devops-master:${BUILD_NUMBER} ${ECR_REPO}:${BUILD_NUMBER}
+                docker push ${ECR_REPO}:${BUILD_NUMBER}
+                """
+            }
+        }
+ 
+        stage('Blue-Green Deployment') {
+            steps {
+                sh """
+                ansible-playbook -i ansible/inventory/hosts \
+                ansible/playbooks/deploy.yml \
+                -e ecr_image=${ECR_REPO}:${BUILD_NUMBER}
+                """
             }
         }
     }

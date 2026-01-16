@@ -1,0 +1,38 @@
+- name: Blue Green Deployment
+  hosts: web
+  become: yes
+  vars:
+    app_name: devops-master-app
+    image: "{{ ecr_image }}"
+    active_color_file: /opt/active_color
+ 
+  tasks:
+ 
+    - name: Decide next color
+      shell: |
+        if [ -f {{ active_color_file }} ] && grep -q blue {{ active_color_file }}; then
+          echo green
+        else
+          echo blue
+        fi
+      register: next_color
+ 
+    - name: Run new container
+      docker_container:
+        name: "{{ app_name }}-{{ next_color.stdout }}"
+        image: "{{ image }}"
+        state: started
+        restart_policy: always
+        published_ports:
+          - "808{{ '1' if next_color.stdout == 'blue' else '2' }}:80"
+ 
+    - name: Switch traffic
+      copy:
+        content: "{{ next_color.stdout }}"
+        dest: "{{ active_color_file }}"
+ 
+    - name: Stop old container
+      docker_container:
+        name: "{{ app_name }}-{{ 'green' if next_color.stdout == 'blue' else 'blue' }}"
+        state: absent
+      ignore_errors: yes
