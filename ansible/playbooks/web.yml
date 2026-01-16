@@ -7,13 +7,28 @@
       apt:
         update_cache: yes
  
-    - name: Install Nginx
+    - name: Install required packages
       apt:
-        name: nginx
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
         state: present
  
-    - name: Start & enable Nginx
+    - name: Install Docker
+      apt:
+        name: docker.io
+        state: present
+ 
+    - name: Start & enable Docker
       service:
-        name: nginx
+        name: docker
         state: started
         enabled: yes
+ 
+    - name: Add ubuntu user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
