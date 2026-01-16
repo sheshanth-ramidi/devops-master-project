@@ -1,8 +1,15 @@
+<<<<<<< HEAD
 [web]
 
 web1 ansible_host=${EC2_IP}
 
 
+=======
+
+[web]
+web1 ansible_host=13.203.92.63
+ 
+>>>>>>> d0dfe5b (Update with phase 6)
 [web:vars]
 ansible_user=ubuntu
 ansible_ssh_private_key_file=/var/lib/jenkins/.ssh/devops-key.pem
