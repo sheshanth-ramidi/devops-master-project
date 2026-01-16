@@ -1,4 +1,5 @@
-- name: Configure Web Server
+---
+- name: Configure EC2 for Docker + AWS CLI
   hosts: web
   become: yes
  
@@ -10,25 +11,12 @@
     - name: Install required packages
       apt:
         name:
-          - ca-certificates
+          - docker.io
+          - unzip
           - curl
-          - gnupg
-          - lsb-release
         state: present
  
-    - name: Install Docker
-      apt:
-        name: docker.io
-        state: present
-
-    - name: Install AWS CLI
-      apt:
-        name: awscli
-        state: present
-        update_cache: yes
-
- 
-    - name: Start & enable Docker
+    - name: Start and enable Docker
       service:
         name: docker
         state: started
@@ -39,3 +27,26 @@
         name: ubuntu
         groups: docker
         append: yes
+ 
+    - name: Download AWS CLI v2
+      get_url:
+        url: https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
+        dest: /tmp/awscliv2.zip
+ 
+    - name: Unzip AWS CLI
+      unarchive:
+        src: /tmp/awscliv2.zip
+        dest: /tmp
+        remote_src: yes
+ 
+    - name: Install AWS CLI
+      command: /tmp/aws/install
+      args:
+        creates: /usr/local/bin/aws
+ 
+    - name: Verify AWS CLI
+      command: aws --version
+      register: aws_version
+ 
+    - debug:
+        msg: "{{ aws_version.stdout }}"
