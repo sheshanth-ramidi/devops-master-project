@@ -3,13 +3,13 @@ pipeline {
  
     environment {
         AWS_DEFAULT_REGION = "ap-south-1"
-        TF_DIR      = "terraform"
-        ANSIBLE_DIR = "ansible"
-        INVENTORY   = "ansible/inventory/hosts"
-        SSH_KEY     = "/var/lib/jenkins/.ssh/devops-key.pem"
+        TF_DIR       = "terraform"
+        ANSIBLE_DIR  = "ansible"
+        INVENTORY    = "ansible/inventory/hosts"
+        SSH_KEY      = "/var/lib/jenkins/.ssh/devops-key.pem"
  
         AWS_ACCOUNT_ID = "741960641924"
-        ECR_REPO = "${AWS_ACCOUNT_ID}.dkr.ecr.ap-south-1.amazonaws.com/devops-master-app"
+        ECR_REPO  = "${AWS_ACCOUNT_ID}.dkr.ecr.ap-south-1.amazonaws.com/devops-master-app"
         IMAGE_TAG = "latest"
  
         EMAIL_TO = "r.sheshanthr@gmail.com"
@@ -21,7 +21,7 @@ pipeline {
  
     stages {
  
-        /* ================= PHASE-3 ================= */
+        /* ===================== PHASE 3 ===================== */
  
         stage('Checkout Code') {
             steps {
@@ -80,7 +80,7 @@ ansible_ssh_common_args='-o StrictHostKeyChecking=no'
             }
         }
  
-        /* ================= PHASE-4 ================= */
+        /* ===================== PHASE 4 ===================== */
  
         stage('Build Docker Image') {
             steps {
@@ -90,7 +90,7 @@ ansible_ssh_common_args='-o StrictHostKeyChecking=no'
             }
         }
  
-        /* ================= PHASE-5 ================= */
+        /* ===================== PHASE 5 ===================== */
  
         stage('Login to AWS ECR') {
             steps {
@@ -118,14 +118,15 @@ ansible_ssh_common_args='-o StrictHostKeyChecking=no'
         stage('Deploy Container from ECR to EC2') {
             steps {
                 sh """
-                ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ubuntu@${EC2_IP} << EOF
-                  aws ecr get-login-password --region ${AWS_DEFAULT_REGION} |
-                  docker login --username AWS --password-stdin ${ECR_REPO}
-                  docker stop app || true
-                  docker rm app || true
-                  docker pull ${ECR_REPO}:${IMAGE_TAG}
-                  docker run -d --name app -p 80:80 ${ECR_REPO}:${IMAGE_TAG}
-                EOF
+                ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ubuntu@${EC2_IP} '
+                    aws ecr get-login-password --region ${AWS_DEFAULT_REGION} |
+                    docker login --username AWS --password-stdin ${ECR_REPO}
+ 
+                    docker pull ${ECR_REPO}:${IMAGE_TAG}
+                    docker stop app || true
+                    docker rm app || true
+                    docker run -d --name app -p 80:80 ${ECR_REPO}:${IMAGE_TAG}
+                '
                 """
             }
         }
