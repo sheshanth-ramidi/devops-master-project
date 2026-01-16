@@ -3,12 +3,16 @@ pipeline {
  
     environment {
         AWS_DEFAULT_REGION = "ap-south-1"
-        TF_DIR = "terraform"
+        TF_DIR      = "terraform"
         ANSIBLE_DIR = "ansible"
-        INVENTORY = "ansible/inventory/hosts"
-        SSH_KEY = "/var/lib/jenkins/.ssh/devops-key.pem"
+        INVENTORY   = "ansible/inventory/hosts"
+        SSH_KEY     = "/var/lib/jenkins/.ssh/devops-key.pem"
+ 
+        AWS_ACCOUNT_ID = "YOUR_ACCOUNT_ID"
+        ECR_REPO = "${AWS_ACCOUNT_ID}.dkr.ecr.ap-south-1.amazonaws.com/devops-master-app"
+        IMAGE_TAG = "latest"
+ 
         EMAIL_TO = "r.sheshanth@gmail.com"
-        ANSIBLE_HOST_KEY_CHECKING = "False"
     }
  
     options {
@@ -17,6 +21,8 @@ pipeline {
  
     stages {
  
+        /* ================= PHASE-3 ================= */
+ 
         stage('Checkout Code') {
             steps {
                 git branch: 'main',
@@ -24,40 +30,17 @@ pipeline {
             }
         }
  
-        stage('Terraform Init') {
+        stage('Terraform Init & Apply') {
             steps {
                 withCredentials([[
                     $class: 'AmazonWebServicesCredentialsBinding',
                     credentialsId: 'aws-jenkins'
                 ]]) {
                     dir("${TF_DIR}") {
-                        sh 'terraform init -reconfigure'
-                    }
-                }
-            }
-        }
- 
-        stage('Terraform Plan') {
-            steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-jenkins'
-                ]]) {
-                    dir("${TF_DIR}") {
-                        sh 'terraform plan'
-                    }
-                }
-            }
-        }
- 
-        stage('Terraform Apply') {
-            steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'aws-jenkins'
-                ]]) {
-                    dir("${TF_DIR}") {
-                        sh 'terraform apply -auto-approve'
+                        sh '''
+                        terraform init -reconfigure
+                        terraform apply -auto-approve
+                        '''
                     }
                 }
             }
@@ -72,14 +55,13 @@ pipeline {
                             returnStdout: true
                         ).trim()
                     }
-                    echo "EC2 Public IP: ${EC2_IP}"
                 }
+                echo "EC2 IP: ${EC2_IP}"
             }
         }
  
         stage('Generate Ansible Inventory') {
             steps {
-                sh "mkdir -p ${ANSIBLE_DIR}/inventory"
                 writeFile file: "${INVENTORY}", text: """
 [web]
 web1 ansible_host=${EC2_IP}
@@ -92,48 +74,58 @@ ansible_ssh_common_args='-o StrictHostKeyChecking=no'
             }
         }
  
-        stage('Prepare SSH') {
-            steps {
-                sh """
-                chmod 600 ${SSH_KEY} || true
-                ssh-keygen -R ${EC2_IP} || true
-                ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ubuntu@${EC2_IP} "echo SSH OK"
-                """
-            }
-        }
- 
-        stage('Test Ansible Connectivity') {
-            steps {
-                sh "ansible -i ${INVENTORY} web -m ping"
-            }
-        }
- 
-        stage('Run Ansible Playbook') {
+        stage('Run Ansible (Install Docker)') {
             steps {
                 sh "ansible-playbook -i ${INVENTORY} ansible/playbooks/web.yml"
             }
         }
  
-        /* =========================
-           ======= PHASE-4 =========
-           ========================= */
+        /* ================= PHASE-4 ================= */
  
-        stage('Phase-4: Build Docker Image') {
+        stage('Build Docker Image') {
             steps {
-                sh '''
-                docker build -t phase4-app:latest Docker/
-                '''
+                sh """
+                docker build -t devops-master-app:${IMAGE_TAG} Docker/
+                """
             }
         }
  
-        stage('Phase-4: Deploy Docker Container to EC2') {
+        /* ================= PHASE-5 ================= */
+ 
+        stage('Login to AWS ECR') {
+            steps {
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws-jenkins'
+                ]]) {
+                    sh """
+                    aws ecr get-login-password --region ${AWS_DEFAULT_REGION} |
+                    docker login --username AWS --password-stdin ${ECR_REPO}
+                    """
+                }
+            }
+        }
+ 
+        stage('Tag & Push Image to ECR') {
             steps {
                 sh """
-                ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ubuntu@${EC2_IP} '
-                    docker stop phase4 || true
-                    docker rm phase4 || true
-                    docker run -d --name phase4 -p 80:80 nginx
-                '
+                docker tag devops-master-app:${IMAGE_TAG} ${ECR_REPO}:${IMAGE_TAG}
+                docker push ${ECR_REPO}:${IMAGE_TAG}
+                """
+            }
+        }
+ 
+        stage('Deploy Container from ECR to EC2') {
+            steps {
+                sh """
+                ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ubuntu@${EC2_IP} << EOF
+                  aws ecr get-login-password --region ${AWS_DEFAULT_REGION} |
+                  docker login --username AWS --password-stdin ${ECR_REPO}
+                  docker stop app || true
+                  docker rm app || true
+                  docker pull ${ECR_REPO}:${IMAGE_TAG}
+                  docker run -d --name app -p 80:80 ${ECR_REPO}:${IMAGE_TAG}
+                EOF
                 """
             }
         }
@@ -143,15 +135,18 @@ ansible_ssh_common_args='-o StrictHostKeyChecking=no'
         success {
             emailext(
                 to: "${EMAIL_TO}",
-                subject: "✅ Jenkins Pipeline SUCCESS - DevOps Master Project",
+                subject: "✅ Jenkins SUCCESS – DevOps Master Project",
                 body: """
 Pipeline completed successfully.
  
 EC2 IP: ${EC2_IP}
  
-✔ Terraform Provisioning
-✔ Ansible Configuration
-✔ Docker Deployment (Phase-4)
+Phases:
+✔ Terraform
+✔ Ansible
+✔ Docker Build
+✔ ECR Push
+✔ EC2 Deployment
 """
             )
         }
@@ -159,8 +154,8 @@ EC2 IP: ${EC2_IP}
         failure {
             emailext(
                 to: "${EMAIL_TO}",
-                subject: "❌ Jenkins Pipeline FAILED - DevOps Master Project",
-                body: "Pipeline failed. Check Jenkins console output."
+                subject: "❌ Jenkins FAILED – DevOps Master Project",
+                body: "Pipeline failed. Check Jenkins logs."
             )
         }
     }
