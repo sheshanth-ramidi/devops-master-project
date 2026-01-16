@@ -12,7 +12,7 @@ pipeline {
         ECR_REPO = "${AWS_ACCOUNT_ID}.dkr.ecr.ap-south-1.amazonaws.com/devops-master-app"
         IMAGE_TAG = "latest"
  
-        EMAIL_TO = "r.sheshanth@gmail.com"
+        EMAIL_TO = "r.sheshanthr@gmail.com"
     }
  
     options {
