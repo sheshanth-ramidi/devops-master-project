@@ -26,7 +26,7 @@ pipeline {
         stage('Force Clean Workspace') {
             steps {
                 sh '''
-                  sudo rm -rf .git
+                  rm -rf .git
                   git clean -fdx
                   '''
             }
