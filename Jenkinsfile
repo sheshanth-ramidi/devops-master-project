@@ -105,25 +105,6 @@ ansible_ssh_common_args='-o StrictHostKeyChecking=no'
                 }
             }
         }
-<<<<<<< HEAD
- 
-=======
-        
-        stage('Fetch ECR Details') {
-            steps {
-                dir("${TF_DIR}") {
-                  script {
-                     env.ECR_REPO = sh(
-                       script: "terraform output -raw ecr_repository_url",
-                       returnStdout: true
-                       ).trim()
-                  }
-              }
-                   echo "Using ECR Repo: ${ECR_REPO}"
-                 }
-           }
-  
->>>>>>> d0dfe5b (Update with phase 6)
         stage('Tag & Push Image to ECR') {
             steps {
                 sh """
