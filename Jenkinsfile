@@ -130,6 +130,28 @@ ansible_ssh_common_args='-o StrictHostKeyChecking=no'
                 """
             }
         }
+
+        stage('Phase 6: Deploy to EKS') {
+            steps {
+                sh '''
+                aws eks update-kubeconfig \
+                    --region ap-south-1 \
+                    --name devops-eks-cluster
+ 
+                    kubectl apply -f k8s/deployment.yaml
+                    kubectl apply -f k8s/service.yaml
+                '''
+             }
+        }
+ 
+        stage('Verify EKS Deployment') {
+            steps {
+                sh '''
+                   kubectl rollout status deployment/devops-app
+                   kubectl get svc devops-service
+                '''
+             }
+        }
     }
  
     post {
