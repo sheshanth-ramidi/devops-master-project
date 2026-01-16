@@ -5,7 +5,15 @@ resource "aws_instance" "devops_ec2" {
   vpc_security_group_ids = [aws_security_group.devops_sg.id]
  
   key_name = var.key_name
+  
+  iam_instance_profile = aws_iam_instance_profile.jenkins_profile.name
  
+   metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
   tags = {
     Name = "devops-server"
   }
