@@ -23,3 +23,8 @@ variable "key_name" {
   type        = string
 }
 
+variable "ECR_name" {
+  description = "ECR name"
+  type        = string
+}
+
