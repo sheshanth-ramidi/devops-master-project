@@ -1,0 +1,43 @@
+{
+  "name": "devops-master-backend",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
+app/backend/server.js
+Copy code
+Js
+const express = require('express');
+const app = express();
+ 
+const PORT = 3000;
+ 
+app.get('/', (req, res) => {
+  res.json({
+    service: "DevOps Master Backend",
+    status: "running",
+    timestamp: new Date(),
+    version: "v1.0.0"
+  });
+});
+ 
+app.get('/health', (req, res) => {
+  res.status(200).send("OK");
+});
+ 
+app.get('/metadata', (req, res) => {
+  res.json({
+    build: process.env.BUILD_NUMBER || "local",
+    commit: process.env.GIT_COMMIT || "unknown",
+    environment: "production"
+  });
+});
+ 
+app.listen(PORT, () => {
+  console.log(`Backend running on port ${PORT}`);
+});
