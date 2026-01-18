@@ -9,7 +9,7 @@
       shell: cloud-init status --wait
       changed_when: false
  
-    - name: Stop apt-daily services (prevent lock)
+    - name: Stop apt auto services (prevent locks)
       systemd:
         name: "{{ item }}"
         state: stopped
@@ -20,14 +20,18 @@
         - unattended-upgrades.service
       ignore_errors: yes
  
-    - name: Wait for apt lock to be released
+    - name: Wait for apt lock
       shell: |
         while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
           sleep 5
         done
       changed_when: false
  
-    - name: Update apt cache (SAFE)
+    - name: Enable universe repository (REQUIRED for docker.io)
+      command: add-apt-repository universe
+      changed_when: false
+ 
+    - name: Update apt cache
       command: apt-get update -y
       environment:
         DEBIAN_FRONTEND: noninteractive
