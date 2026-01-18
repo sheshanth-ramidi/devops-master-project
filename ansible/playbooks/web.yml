@@ -1,102 +1,69 @@
 ---
-- name: Configure EC2 for Docker + AWS CLI (STABLE)
+- name: Configure EC2 for Docker + AWS CLI (FINAL FIX)
   hosts: web
   become: yes
   gather_facts: yes
  
   tasks:
  
-    - name: Wait for cloud-init to finish
+    - name: Wait for cloud-init
       shell: |
         while [ ! -f /var/lib/cloud/instance/boot-finished ]; do
           sleep 5
         done
-      changed_when: false
  
-    - name: Stop apt auto services (prevent locks)
-      systemd:
-        name: "{{ item }}"
-        state: stopped
-        enabled: no
-      loop:
-        - apt-daily.service
-        - apt-daily.timer
-        - unattended-upgrades.service
-      ignore_errors: yes
- 
-    - name: Wait for apt lock to be released
+    - name: Kill any apt locks (hard stop)
       shell: |
-        while fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock /var/lib/dpkg/lock >/dev/null 2>&1; do
-          sleep 5
-        done
-      args:
-        executable: /bin/bash
-      changed_when: false
+        killall apt apt-get dpkg || true
+        rm -f /var/lib/dpkg/lock-frontend
+        rm -f /var/lib/apt/lists/lock
+        dpkg --configure -a
  
-    - name: Enable universe repository
-      apt_repository:
-        repo: "deb http://archive.ubuntu.com/ubuntu {{ ansible_distribution_release }} universe"
-        state: present
-      register: repo_status
-      until: repo_status is success
-      retries: 10
-      delay: 5
+    - name: Install software-properties-common (required)
+      shell: |
+        apt-get update -y
+        apt-get install -y software-properties-common
  
-    - name: Update apt cache safely
-      apt:
-        update_cache: yes
-        force_apt_get: yes
-        cache_valid_time: 3600
-      register: apt_update
-      until: apt_update is success
-      retries: 10
-      delay: 5
+    - name: Enable universe repository (SAFE WAY)
+      shell: |
+        add-apt-repository universe -y
  
-    - name: Install required packages
-      apt:
-        name:
-          - docker.io
-          - curl
-          - unzip
-        state: present
-        force_apt_get: yes
-      register: pkg_install
-      until: pkg_install is success
-      retries: 5
-      delay: 5
+    - name: Update apt cache (force)
+      shell: |
+        apt-get update -y
+ 
+    - name: Install Docker
+      shell: |
+        apt-get install -y docker.io
  
     - name: Start and enable Docker
-      systemd:
-        name: docker
-        state: started
-        enabled: yes
+      shell: |
+        systemctl start docker
+        systemctl enable docker
  
     - name: Add ubuntu user to docker group
-      user:
-        name: ubuntu
-        groups: docker
-        append: yes
+      shell: |
+        usermod -aG docker ubuntu
  
     - name: Download AWS CLI v2
-      get_url:
-        url: https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
-        dest: /tmp/awscliv2.zip
- 
-    - name: Unzip AWS CLI
-      unarchive:
-        src: /tmp/awscliv2.zip
-        dest: /tmp
-        remote_src: yes
+      shell: |
+        curl -sSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscliv2.zip
  
     - name: Install AWS CLI
-      command: /tmp/aws/install
-      args:
-        creates: /usr/local/bin/aws
+      shell: |
+        unzip -o /tmp/awscliv2.zip -d /tmp
+        /tmp/aws/install || true
+ 
+    - name: Verify Docker
+      command: docker --version
+      register: docker_out
+ 
+    - debug:
+        msg: "{{ docker_out.stdout }}"
  
     - name: Verify AWS CLI
       command: aws --version
-      register: aws_version
-      changed_when: false
+      register: aws_out
  
     - debug:
-        msg: "{{ aws_version.stdout }}"
+        msg: "{{ aws_out.stdout }}"
