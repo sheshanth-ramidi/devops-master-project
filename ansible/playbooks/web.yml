@@ -6,109 +6,78 @@
  
   tasks:
  
-    # ------------------------------------------------------------------
-    # Wait for cloud-init (VERY IMPORTANT on fresh EC2)
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------
+    # Wait for cloud-init (MANDATORY on EC2)
+    # ---------------------------------------------------
     - name: Wait for cloud-init to finish
-      wait_for:
-        path: /var/lib/cloud/instance/boot-finished
-        timeout: 600
- 
-    # ------------------------------------------------------------------
-    # Stop apt auto services (prevents apt lock)
-    # ------------------------------------------------------------------
-    - name: Stop apt auto services (prevent locks)
-      systemd:
-        name: "{{ item }}"
-        state: stopped
-        enabled: no
-      loop:
-        - apt-daily.service
-        - apt-daily.timer
-        - unattended-upgrades.service
-      ignore_errors: yes
- 
-    - name: Wait for apt lock to be released
       shell: |
-        while fuser /var/lib/dpkg/lock >/dev/null 2>&1 || \
-              fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || \
-              fuser /var/cache/apt/archives/lock >/dev/null 2>&1; do
+        while [ ! -f /var/lib/cloud/instance/boot-finished ]; do
           sleep 5
         done
  
-    # ------------------------------------------------------------------
-    # Enable universe repo (NON-INTERACTIVE → THIS WAS YOUR HANG)
-    # ------------------------------------------------------------------
-    - name: Enable universe repository (NON-INTERACTIVE)
-      command: add-apt-repository -y universe
-      changed_when: false
+    # ---------------------------------------------------
+    # Kill apt locks HARD
+    # ---------------------------------------------------
+    - name: Stop apt services
+      shell: |
+        systemctl stop apt-daily.service || true
+        systemctl stop apt-daily.timer || true
+        systemctl stop unattended-upgrades || true
  
-    # ------------------------------------------------------------------
-    # Update apt cache (SAFE VERSION – no unsupported params)
-    # ------------------------------------------------------------------
-    - name: Update apt cache
-      apt:
-        update_cache: yes
-        cache_valid_time: 3600
+    - name: Remove apt lock files
+      shell: |
+        rm -f /var/lib/apt/lists/lock
+        rm -f /var/cache/apt/archives/lock
+        rm -f /var/lib/dpkg/lock*
+        dpkg --configure -a
  
-    # ------------------------------------------------------------------
-    # Install required packages
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------
+    # Enable universe (NON-INTERACTIVE)
+    # ---------------------------------------------------
+    - name: Enable universe repository
+      shell: add-apt-repository -y universe
+ 
+    # ---------------------------------------------------
+    # Update apt cache (SHELL — NOT apt module)
+    # ---------------------------------------------------
+    - name: Update apt cache safely
+      shell: |
+        apt-get clean
+        apt-get update -y
+ 
+    # ---------------------------------------------------
+    # Install packages
+    # ---------------------------------------------------
     - name: Install required packages
-      apt:
-        name:
-          - docker.io
-          - unzip
-          - curl
-        state: present
+      shell: |
+        apt-get install -y docker.io unzip curl
  
-    # ------------------------------------------------------------------
-    # Docker service
-    # ------------------------------------------------------------------
-    - name: Start and enable Docker
-      service:
-        name: docker
-        state: started
-        enabled: yes
+    # ---------------------------------------------------
+    # Docker setup
+    # ---------------------------------------------------
+    - name: Start Docker
+      shell: |
+        systemctl enable docker
+        systemctl start docker
  
     - name: Add ubuntu user to docker group
-      user:
-        name: ubuntu
-        groups: docker
-        append: yes
+      shell: |
+        usermod -aG docker ubuntu
  
-    # ------------------------------------------------------------------
-    # Install AWS CLI v2
-    # ------------------------------------------------------------------
-    - name: Download AWS CLI v2
-      get_url:
-        url: https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
-        dest: /tmp/awscliv2.zip
+    # ---------------------------------------------------
+    # AWS CLI v2
+    # ---------------------------------------------------
+    - name: Install AWS CLI v2
+      shell: |
+        curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
+        unzip -o /tmp/awscliv2.zip -d /tmp
+        /tmp/aws/install || true
  
-    - name: Unzip AWS CLI
-      unarchive:
-        src: /tmp/awscliv2.zip
-        dest: /tmp
-        remote_src: yes
- 
-    - name: Install AWS CLI
-      command: /tmp/aws/install
-      args:
-        creates: /usr/local/bin/aws
- 
+    # ---------------------------------------------------
+    # Verify
+    # ---------------------------------------------------
     - name: Verify AWS CLI
-      command: aws --version
-      register: aws_version
+      shell: aws --version
  
-    - debug:
-        msg: "{{ aws_version.stdout }}"
- 
-    # ------------------------------------------------------------------
-    # Verify IAM Role (STS)
-    # ------------------------------------------------------------------
-    - name: Verify IAM Role access
-      command: aws sts get-caller-identity
-      register: sts_output
- 
-    - debug:
-        msg: "{{ sts_output.stdout }}"
+    - name: Verify IAM Role
+      shell: aws sts get-caller-identity
