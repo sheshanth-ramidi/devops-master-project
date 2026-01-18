@@ -1,77 +1,82 @@
 ---
-- name: Configure EC2 for Docker + AWS CLI (FINAL FINAL)
+- name: Configure EC2 for Docker + AWS CLI (FINAL FIXED)
   hosts: web
   become: yes
   gather_facts: yes
- 
   tasks:
+    - name: Kill all apt/dpkg processes and disable auto-updates
+      shell: |
+        systemctl stop apt-daily.service apt-daily-upgrade.service || true
+        systemctl disable apt-daily.service apt-daily-upgrade.service || true
+        systemctl kill --kill-who=all apt-daily.service || true
+        # Wait for any remaining locks to be released naturally
+        while fuser /var/lib/dpkg/lock >/dev/null 2>&1 ; do sleep 1; done
+        while fuser /var/lib/apt/lists/lock >/dev/null 2>&1 ; do sleep 1; done
+        rm -f /var/lib/dpkg/lock*
+        rm -f /var/lib/apt/lists/lock*
+        dpkg --configure -a
+      args:
+        executable: /bin/bash
  
     - name: Wait for cloud-init
       shell: |
         while [ ! -f /var/lib/cloud/instance/boot-finished ]; do
           sleep 5
         done
- 
-    - name: Remove apt locks completely
-      shell: |
-        systemctl stop apt-daily.service apt-daily-upgrade.service || true
-        systemctl kill apt-daily.service apt-daily-upgrade.service || true
-        rm -f /var/lib/apt/lists/lock
-        rm -f /var/cache/apt/archives/lock
-        rm -f /var/lib/dpkg/lock*
-        dpkg --configure -a
- 
     - name: Install base packages
-      shell: |
-        apt-get update -y
-        apt-get install -y ca-certificates curl gnupg lsb-release unzip
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - unzip
+        state: present
+        update_cache: yes
+ 
+    - name: Create keyring directory
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
  
     - name: Add Docker official GPG key
       shell: |
-        mkdir -p /etc/apt/keyrings
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
+      args:
+        executable: /bin/bash
  
     - name: Add Docker official repository
       shell: |
-        echo \
-        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-        https://download.docker.com/linux/ubuntu \
-        $(lsb_release -cs) stable" \
-        > /etc/apt/sources.list.d/docker.list
- 
-    - name: Update apt cache after adding Docker repo
-      shell: |
-        apt-get update -y
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list
  
     - name: Install Docker CE
-      shell: |
-        apt-get install -y docker-ce docker-ce-cli containerd.io
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+        update_cache: yes
  
     - name: Start and enable Docker
-      shell: |
-        systemctl enable docker
-        systemctl start docker
+      service:
+        name: docker
+        state: started
+        enabled: yes
  
     - name: Add ubuntu user to docker group
-      shell: |
-        usermod -aG docker ubuntu
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
  
     - name: Install AWS CLI v2
       shell: |
-        curl -sSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscliv2.zip
-        unzip -o /tmp/awscliv2.zip -d /tmp
-        /tmp/aws/install || true
- 
-    - name: Verify Docker
-      command: docker --version
-      register: docker_out
- 
-    - debug:
-        msg: "{{ docker_out.stdout }}"
- 
-    - name: Verify AWS CLI
-      command: aws --version
-      register: aws_out
- 
-    - debug:
-        msg: "{{ aws_out.stdout }}"
+        if ! command -v aws &> /dev/null; then
+          curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
+          unzip -o /tmp/awscliv2.zip -d /tmp
+          /tmp/aws/install
+        fi
+      args:
+        executable: /bin/bash
