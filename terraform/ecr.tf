@@ -16,6 +16,26 @@ resource "aws_ecr_repository" "devops_master_app" {
     Project     = "devops-master-project"
   }
 }
+
+# Backend Repository
+resource "aws_ecr_repository" "backend" {
+  name                 = var.backend_repo_name
+  image_tag_mutability = "MUTABLE"
+ 
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+ 
+# Frontend Repository
+resource "aws_ecr_repository" "frontend" {
+  name                 = var.frontend_repo_name
+  image_tag_mutability = "MUTABLE"
+ 
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
  
 # Optional but RECOMMENDED (auto cleanup old images)
 resource "aws_ecr_lifecycle_policy" "cleanup_policy" {

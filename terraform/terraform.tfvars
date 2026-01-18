@@ -8,4 +8,7 @@ eks_node_instance_type = "t3.small"
 eks_desired_nodes      = 2
 ECR_name           = "devops-master-app"
 
-
+# ECR Names (MATCH YOUR JENKINSFILE)
+ECR_name                = "devops-master-app"
+backend_repo_name       = "devops-master-backend"
+frontend_repo_name      = "devops-master-frontend"
