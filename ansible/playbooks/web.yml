@@ -9,10 +9,28 @@
       shell: cloud-init status --wait
       changed_when: false
  
-    - name: Update apt cache
-      apt:
-        update_cache: yes
-        cache_valid_time: 3600
+    - name: Stop apt-daily services (prevent lock)
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: no
+      loop:
+        - apt-daily.service
+        - apt-daily.timer
+        - unattended-upgrades.service
+      ignore_errors: yes
+ 
+    - name: Wait for apt lock to be released
+      shell: |
+        while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+          sleep 5
+        done
+      changed_when: false
+ 
+    - name: Update apt cache (SAFE)
+      command: apt-get update -y
+      environment:
+        DEBIAN_FRONTEND: noninteractive
  
     - name: Install required packages
       apt:
@@ -23,7 +41,7 @@
         state: present
  
     - name: Start and enable Docker
-      service:
+      systemd:
         name: docker
         state: started
         enabled: yes
