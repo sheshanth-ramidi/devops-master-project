@@ -11,6 +11,7 @@
         while [ ! -f /var/lib/cloud/instance/boot-finished ]; do
           sleep 5
         done
+      changed_when: false
  
     - name: Stop apt auto services (prevent locks)
       systemd:
@@ -25,19 +26,31 @@
  
     - name: Wait for apt lock to be released
       shell: |
-        while lsof /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+        while fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock /var/lib/dpkg/lock >/dev/null 2>&1; do
           sleep 5
         done
+      args:
+        executable: /bin/bash
+      changed_when: false
  
-    - name: Enable universe repository (required for docker.io)
+    - name: Enable universe repository
       apt_repository:
         repo: "deb http://archive.ubuntu.com/ubuntu {{ ansible_distribution_release }} universe"
         state: present
+      register: repo_status
+      until: repo_status is success
+      retries: 10
+      delay: 5
  
     - name: Update apt cache safely
       apt:
         update_cache: yes
         force_apt_get: yes
+        cache_valid_time: 3600
+      register: apt_update
+      until: apt_update is success
+      retries: 10
+      delay: 5
  
     - name: Install required packages
       apt:
@@ -46,6 +59,11 @@
           - curl
           - unzip
         state: present
+        force_apt_get: yes
+      register: pkg_install
+      until: pkg_install is success
+      retries: 5
+      delay: 5
  
     - name: Start and enable Docker
       systemd:
@@ -78,6 +96,7 @@
     - name: Verify AWS CLI
       command: aws --version
       register: aws_version
+      changed_when: false
  
     - debug:
         msg: "{{ aws_version.stdout }}"
