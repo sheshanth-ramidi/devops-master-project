@@ -2,13 +2,21 @@
 - name: Configure EC2 for Docker + AWS CLI
   hosts: web
   become: yes
+  gather_facts: yes
  
   tasks:
  
+    # ------------------------------------------------------------------
+    # Wait for cloud-init (VERY IMPORTANT on fresh EC2)
+    # ------------------------------------------------------------------
     - name: Wait for cloud-init to finish
-      shell: cloud-init status --wait
-      changed_when: false
+      wait_for:
+        path: /var/lib/cloud/instance/boot-finished
+        timeout: 600
  
+    # ------------------------------------------------------------------
+    # Stop apt auto services (prevents apt lock)
+    # ------------------------------------------------------------------
     - name: Stop apt auto services (prevent locks)
       systemd:
         name: "{{ item }}"
@@ -20,22 +28,32 @@
         - unattended-upgrades.service
       ignore_errors: yes
  
-    - name: Wait for apt lock
+    - name: Wait for apt lock to be released
       shell: |
-        while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+        while fuser /var/lib/dpkg/lock >/dev/null 2>&1 || \
+              fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || \
+              fuser /var/cache/apt/archives/lock >/dev/null 2>&1; do
           sleep 5
         done
+ 
+    # ------------------------------------------------------------------
+    # Enable universe repo (NON-INTERACTIVE → THIS WAS YOUR HANG)
+    # ------------------------------------------------------------------
+    - name: Enable universe repository (NON-INTERACTIVE)
+      command: add-apt-repository -y universe
       changed_when: false
  
-    - name: Enable universe repository (REQUIRED for docker.io)
-      command: add-apt-repository universe
-      changed_when: false
- 
+    # ------------------------------------------------------------------
+    # Update apt cache (SAFE VERSION – no unsupported params)
+    # ------------------------------------------------------------------
     - name: Update apt cache
-      command: apt-get update -y
-      environment:
-        DEBIAN_FRONTEND: noninteractive
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
  
+    # ------------------------------------------------------------------
+    # Install required packages
+    # ------------------------------------------------------------------
     - name: Install required packages
       apt:
         name:
@@ -44,8 +62,11 @@
           - curl
         state: present
  
+    # ------------------------------------------------------------------
+    # Docker service
+    # ------------------------------------------------------------------
     - name: Start and enable Docker
-      systemd:
+      service:
         name: docker
         state: started
         enabled: yes
@@ -56,6 +77,9 @@
         groups: docker
         append: yes
  
+    # ------------------------------------------------------------------
+    # Install AWS CLI v2
+    # ------------------------------------------------------------------
     - name: Download AWS CLI v2
       get_url:
         url: https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
@@ -68,7 +92,7 @@
         remote_src: yes
  
     - name: Install AWS CLI
-      shell: /tmp/aws/install
+      command: /tmp/aws/install
       args:
         creates: /usr/local/bin/aws
  
@@ -78,3 +102,13 @@
  
     - debug:
         msg: "{{ aws_version.stdout }}"
+ 
+    # ------------------------------------------------------------------
+    # Verify IAM Role (STS)
+    # ------------------------------------------------------------------
+    - name: Verify IAM Role access
+      command: aws sts get-caller-identity
+      register: sts_output
+ 
+    - debug:
+        msg: "{{ sts_output.stdout }}"
