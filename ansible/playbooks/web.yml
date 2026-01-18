@@ -1,5 +1,5 @@
 ---
-- name: Configure EC2 for Docker + AWS CLI (FINAL FIX)
+- name: Configure EC2 for Docker + AWS CLI (FINAL FINAL)
   hosts: web
   become: yes
   gather_facts: yes
@@ -12,45 +12,53 @@
           sleep 5
         done
  
-    - name: Kill any apt locks (hard stop)
+    - name: Remove apt locks completely
       shell: |
-        killall apt apt-get dpkg || true
-        rm -f /var/lib/dpkg/lock-frontend
+        systemctl stop apt-daily.service apt-daily-upgrade.service || true
+        systemctl kill apt-daily.service apt-daily-upgrade.service || true
         rm -f /var/lib/apt/lists/lock
+        rm -f /var/cache/apt/archives/lock
+        rm -f /var/lib/dpkg/lock*
         dpkg --configure -a
  
-    - name: Install software-properties-common (required)
+    - name: Install base packages
       shell: |
         apt-get update -y
-        apt-get install -y software-properties-common
+        apt-get install -y ca-certificates curl gnupg lsb-release unzip
  
-    - name: Enable universe repository (SAFE WAY)
+    - name: Add Docker official GPG key
       shell: |
-        add-apt-repository universe -y
+        mkdir -p /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
  
-    - name: Update apt cache (force)
+    - name: Add Docker official repository
+      shell: |
+        echo \
+        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+        https://download.docker.com/linux/ubuntu \
+        $(lsb_release -cs) stable" \
+        > /etc/apt/sources.list.d/docker.list
+ 
+    - name: Update apt cache after adding Docker repo
       shell: |
         apt-get update -y
  
-    - name: Install Docker
+    - name: Install Docker CE
       shell: |
-        apt-get install -y docker.io
+        apt-get install -y docker-ce docker-ce-cli containerd.io
  
     - name: Start and enable Docker
       shell: |
-        systemctl start docker
         systemctl enable docker
+        systemctl start docker
  
     - name: Add ubuntu user to docker group
       shell: |
         usermod -aG docker ubuntu
  
-    - name: Download AWS CLI v2
+    - name: Install AWS CLI v2
       shell: |
         curl -sSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscliv2.zip
- 
-    - name: Install AWS CLI
-      shell: |
         unzip -o /tmp/awscliv2.zip -d /tmp
         /tmp/aws/install || true
  
