@@ -6,7 +6,6 @@ key_name           = "devops-key"
 eks_cluster_name        = "devops-eks-cluster"
 eks_node_instance_type = "t3.small"
 eks_desired_nodes      = 2
-ECR_name           = "devops-master-app"
 
 # ECR Names (MATCH YOUR JENKINSFILE)
 ECR_name                = "devops-master-app"
