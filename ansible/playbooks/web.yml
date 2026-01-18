@@ -4,18 +4,15 @@
   become: yes
  
   tasks:
+ 
+    - name: Wait for cloud-init to finish
+      shell: cloud-init status --wait
+      changed_when: false
+ 
     - name: Update apt cache
       apt:
         update_cache: yes
         cache_valid_time: 3600
-        register: apt_update
-        retries: 5
-        delay: 10
-        until: apt_update is succeeded
- 
-    - name: Check internet connectivity
-      command: ping -c 2 google.com
- 
  
     - name: Install required packages
       apt:
@@ -37,10 +34,6 @@
         groups: docker
         append: yes
  
-    - name: Reboot EC2 to apply docker group permissions
-      reboot:
-        reboot_timeout: 300
- 
     - name: Download AWS CLI v2
       get_url:
         url: https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
@@ -57,24 +50,9 @@
       args:
         creates: /usr/local/bin/aws
  
-    - name: Ensure AWS CLI path is available
-      lineinfile:
-        path: /etc/profile.d/aws.sh
-        line: 'export PATH=$PATH:/usr/local/bin'
-        create: yes
- 
     - name: Verify AWS CLI
       command: aws --version
       register: aws_version
  
     - debug:
         msg: "{{ aws_version.stdout }}"
- 
-    - name: Verify IAM Role access (STS)
-      command: aws sts get-caller-identity
-      register: sts_output
- 
-    - debug:
-        msg: "{{ sts_output.stdout }}"
- 
- 
