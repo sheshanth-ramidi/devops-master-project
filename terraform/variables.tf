@@ -28,3 +28,14 @@ variable "ECR_name" {
   type        = string
 }
 
+variable "backend_repo_name" {
+  description = "Name for the backend ECR repository"
+  type        = string
+  default     = "devops-master-backend"
+}
+ 
+variable "frontend_repo_name" {
+  description = "Name for the frontend ECR repository"
+  type        = string
+  default     = "devops-master-frontend"
+}
