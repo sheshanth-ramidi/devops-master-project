@@ -3,7 +3,7 @@
 ############################################
  
 resource "aws_iam_role" "ec2_role" {
-  name = "ec2-devops-role"
+  name = "ec2-devops-role-v2"
  
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
