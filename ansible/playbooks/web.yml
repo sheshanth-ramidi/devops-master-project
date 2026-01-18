@@ -7,77 +7,83 @@
   tasks:
  
     # ---------------------------------------------------
-    # Wait for cloud-init (MANDATORY on EC2)
+    # Wait for cloud-init (EC2 mandatory)
     # ---------------------------------------------------
-    - name: Wait for cloud-init to finish
+    - name: Wait for cloud-init
       shell: |
         while [ ! -f /var/lib/cloud/instance/boot-finished ]; do
           sleep 5
         done
  
     # ---------------------------------------------------
-    # Kill apt locks HARD
+    # Clean & fix apt completely
     # ---------------------------------------------------
-    - name: Stop apt services
+    - name: Fix apt state
       shell: |
-        systemctl stop apt-daily.service || true
-        systemctl stop apt-daily.timer || true
-        systemctl stop unattended-upgrades || true
- 
-    - name: Remove apt lock files
-      shell: |
+        systemctl stop apt-daily.service apt-daily.timer unattended-upgrades || true
         rm -f /var/lib/apt/lists/lock
         rm -f /var/cache/apt/archives/lock
         rm -f /var/lib/dpkg/lock*
         dpkg --configure -a
- 
-    # ---------------------------------------------------
-    # Enable universe (NON-INTERACTIVE)
-    # ---------------------------------------------------
-    - name: Enable universe repository
-      shell: add-apt-repository -y universe
- 
-    # ---------------------------------------------------
-    # Update apt cache (SHELL — NOT apt module)
-    # ---------------------------------------------------
-    - name: Update apt cache safely
-      shell: |
         apt-get clean
-        apt-get update -y
+ 
+    - name: Update apt
+      shell: apt-get update -y
  
     # ---------------------------------------------------
-    # Install packages
+    # Install prerequisites
     # ---------------------------------------------------
-    - name: Install required packages
+    - name: Install prerequisites
       shell: |
-        apt-get install -y docker.io unzip curl
+        apt-get install -y ca-certificates curl gnupg lsb-release unzip
  
     # ---------------------------------------------------
-    # Docker setup
+    # Install Docker (OFFICIAL METHOD – THIS FIXES EVERYTHING)
     # ---------------------------------------------------
-    - name: Start Docker
+    - name: Add Docker GPG key
+      shell: |
+        mkdir -p /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+        gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+ 
+    - name: Add Docker repository
+      shell: |
+        echo \
+        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+        https://download.docker.com/linux/ubuntu \
+        $(lsb_release -cs) stable" \
+        > /etc/apt/sources.list.d/docker.list
+ 
+    - name: Install Docker Engine
+      shell: |
+        apt-get update -y
+        apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+ 
+    - name: Enable and start Docker
       shell: |
         systemctl enable docker
         systemctl start docker
  
     - name: Add ubuntu user to docker group
-      shell: |
-        usermod -aG docker ubuntu
+      shell: usermod -aG docker ubuntu
  
     # ---------------------------------------------------
     # AWS CLI v2
     # ---------------------------------------------------
     - name: Install AWS CLI v2
       shell: |
-        curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
+        curl -s https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscliv2.zip
         unzip -o /tmp/awscliv2.zip -d /tmp
         /tmp/aws/install || true
  
     # ---------------------------------------------------
-    # Verify
+    # Verification
     # ---------------------------------------------------
+    - name: Verify Docker
+      shell: docker --version
+ 
     - name: Verify AWS CLI
       shell: aws --version
  
-    - name: Verify IAM Role
+    - name: Verify IAM role
       shell: aws sts get-caller-identity
