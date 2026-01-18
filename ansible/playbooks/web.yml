@@ -1,89 +1,83 @@
 ---
-- name: Configure EC2 for Docker + AWS CLI
+- name: Configure EC2 for Docker + AWS CLI (STABLE)
   hosts: web
   become: yes
   gather_facts: yes
  
   tasks:
  
-    # ---------------------------------------------------
-    # Wait for cloud-init (EC2 mandatory)
-    # ---------------------------------------------------
-    - name: Wait for cloud-init
+    - name: Wait for cloud-init to finish
       shell: |
         while [ ! -f /var/lib/cloud/instance/boot-finished ]; do
           sleep 5
         done
  
-    # ---------------------------------------------------
-    # Clean & fix apt completely
-    # ---------------------------------------------------
-    - name: Fix apt state
-      shell: |
-        systemctl stop apt-daily.service apt-daily.timer unattended-upgrades || true
-        rm -f /var/lib/apt/lists/lock
-        rm -f /var/cache/apt/archives/lock
-        rm -f /var/lib/dpkg/lock*
-        dpkg --configure -a
-        apt-get clean
+    - name: Stop apt auto services (prevent locks)
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: no
+      loop:
+        - apt-daily.service
+        - apt-daily.timer
+        - unattended-upgrades.service
+      ignore_errors: yes
  
-    - name: Update apt
-      shell: apt-get update -y
- 
-    # ---------------------------------------------------
-    # Install prerequisites
-    # ---------------------------------------------------
-    - name: Install prerequisites
+    - name: Wait for apt lock to be released
       shell: |
-        apt-get install -y ca-certificates curl gnupg lsb-release unzip
+        while lsof /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+          sleep 5
+        done
  
-    # ---------------------------------------------------
-    # Install Docker (OFFICIAL METHOD – THIS FIXES EVERYTHING)
-    # ---------------------------------------------------
-    - name: Add Docker GPG key
-      shell: |
-        mkdir -p /etc/apt/keyrings
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
-        gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    - name: Enable universe repository (required for docker.io)
+      apt_repository:
+        repo: "deb http://archive.ubuntu.com/ubuntu {{ ansible_distribution_release }} universe"
+        state: present
  
-    - name: Add Docker repository
-      shell: |
-        echo \
-        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-        https://download.docker.com/linux/ubuntu \
-        $(lsb_release -cs) stable" \
-        > /etc/apt/sources.list.d/docker.list
+    - name: Update apt cache safely
+      apt:
+        update_cache: yes
+        force_apt_get: yes
  
-    - name: Install Docker Engine
-      shell: |
-        apt-get update -y
-        apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    - name: Install required packages
+      apt:
+        name:
+          - docker.io
+          - curl
+          - unzip
+        state: present
  
-    - name: Enable and start Docker
-      shell: |
-        systemctl enable docker
-        systemctl start docker
+    - name: Start and enable Docker
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
  
     - name: Add ubuntu user to docker group
-      shell: usermod -aG docker ubuntu
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
  
-    # ---------------------------------------------------
-    # AWS CLI v2
-    # ---------------------------------------------------
-    - name: Install AWS CLI v2
-      shell: |
-        curl -s https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscliv2.zip
-        unzip -o /tmp/awscliv2.zip -d /tmp
-        /tmp/aws/install || true
+    - name: Download AWS CLI v2
+      get_url:
+        url: https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
+        dest: /tmp/awscliv2.zip
  
-    # ---------------------------------------------------
-    # Verification
-    # ---------------------------------------------------
-    - name: Verify Docker
-      shell: docker --version
+    - name: Unzip AWS CLI
+      unarchive:
+        src: /tmp/awscliv2.zip
+        dest: /tmp
+        remote_src: yes
+ 
+    - name: Install AWS CLI
+      command: /tmp/aws/install
+      args:
+        creates: /usr/local/bin/aws
  
     - name: Verify AWS CLI
-      shell: aws --version
+      command: aws --version
+      register: aws_version
  
-    - name: Verify IAM role
-      shell: aws sts get-caller-identity
+    - debug:
+        msg: "{{ aws_version.stdout }}"
